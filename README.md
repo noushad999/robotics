@@ -1,996 +1,466 @@
+# 🤖 Robotics — Final Notes
+### 5 Robots | Easy Language | Clean Diagrams
 
-# Robotics Exam — Scenario-Based Q&A Prep
- 
-**Robots covered:** Garbage Collection · Earthquake Monitoring & Evacuation · Robotic Arm / Manipulator · Nursing Assistant · Firefighting
-**Topics covered:** Embedded Systems · Flow Diagrams · Pseudocode · Robotics Math & Mechanics (Coordinate Geometry, FK, IK, Torque) · Vision (SLAM) · Control Systems (PID) · Communication Protocols
- 
-> The exam has 5 scenario questions, likely one per robot. You won't know which topic gets attached to which robot, so this guide gives a full answer for **every topic on every robot**. Diagrams render in the Claude app / any Mermaid viewer; the source is also readable as plain logic.
- 
 ---
- 
-## How to use this + exam strategy
- 
-1. **Read the scenario, identify the topic asked.** Each topic has a standard answer skeleton — reuse it and swap in robot-specific sensors/math.
-2. **Always draw the diagram with: a one-line intro → the diagram → a caption.** Label every arrow (Yes/No on decisions, event names on state transitions). Examiners give marks for clean arrowing.
-3. **Pseudocode pattern (every time):** `BEGIN → INITIALIZE sensors/actuators/variables → define FUNCTIONS → main WHILE loop calling those functions → END`.
-4. **For math, write the formula, plug numbers, box the answer, state units.**
-### Topic ↔ Robot strength map (where each topic is most likely / easiest to score)
- 
-| Topic | Strongest robot(s) | Why |
-|---|---|---|
-| FK / IK | **Robotic Arm** | Multi-DOF joints, the textbook case |
-| Torque | Robotic Arm, Firefighting (incline), Garbage (gripper) | Lifting loads / climbing |
-| SLAM / Vision | Garbage, Nursing, Firefighting | Navigation in real environments |
-| Seismic / threshold sensing | **Earthquake** | Accelerometer + gas sensing |
-| PID | All (Arm = joint, mobile = heading/speed) | Feedback everywhere |
-| Communication (real-time) | Robotic Arm (CAN/EtherCAT) | Deterministic joint control |
-| Communication (long-range) | Earthquake, Firefighting | LoRa/cellular when infra fails |
-| Safety control | Nursing, Firefighting | Humans nearby / hazardous |
- 
----
- 
-## Common Concept: Sensor–Actuator Integration & the Feedback Loop
- 
-Every robot here follows the same control architecture: **sensors** sense the world → a **controller** (microcontroller / single-board computer) processes the data and decides → **actuators** act on the world → the result is sensed again, closing the loop. Low-level, fast tasks (motor PWM, reading encoders) run on a microcontroller (Arduino/STM32); heavy tasks (vision, SLAM, planning) run on an SBC (Raspberry Pi / Jetson Nano).
- 
-```mermaid
-flowchart LR
-    ENV([Physical Environment])
-    S["Sensors<br/>(LiDAR, camera, IMU, IR...)"]
-    MCU["Low-level Controller<br/>(Arduino / STM32)<br/>PWM, encoders, PID"]
-    SBC["High-level Controller<br/>(Raspberry Pi / Jetson)<br/>vision, SLAM, planning"]
-    A["Actuators<br/>(motors, servos, pumps)"]
- 
-    ENV --> S
-    S -->|"I2C / SPI / UART"| MCU
-    MCU <-->|"UART / USB / CAN"| SBC
-    SBC -->|"commands"| MCU
-    MCU -->|"PWM / signals"| A
-    A -->|"motion / action"| ENV
-    A -.->|"feedback: encoders, force"| MCU
-```
- 
-*Figure 0: Generic sensor → controller → actuator architecture with feedback. The dashed line is the feedback path (encoders/force) that makes closed-loop control possible. Reuse this skeleton for any robot and just swap the sensor/actuator names.*
- 
-**Feedback control in one line:** the controller compares a *measured* value with a *desired* value, computes the **error**, and drives the actuator to shrink that error to zero.
- 
----
- 
-# 1. Garbage Collection Robot
- 
-**Scenario:** An autonomous wheeled robot patrols a campus/street, detects litter using a camera, navigates to it while avoiding obstacles, picks it up with a gripper, drops it into an onboard bin, and empties the bin at a dumping station when full.
- 
-## Q1.1 — Embedded Systems: sensors, actuators, and their integration
- 
-**Sensors and their applications:**
- 
-- **RGB Camera** — detects and classifies garbage (paper, can, bottle) via a CNN object detector.
-- **LiDAR** — builds a 2D/3D map and supports SLAM for navigation.
-- **Ultrasonic (HC-SR04)** — short-range obstacle distance and gap detection.
-- **IR sensors** — cliff/edge detection (don't fall off a kerb) and line following.
-- **GPS** — coarse outdoor localization.
-- **IMU (accelerometer + gyroscope)** — orientation and dead-reckoning (odometry).
-- **Wheel encoders** — measure wheel rotation → distance and speed feedback.
-- **Load cell (weight sensor)** in the bin — detects when the bin is full.
-**Actuators:**
- 
-- **DC geared motors + motor driver (L298N / BTS7960)** — differential-drive locomotion.
-- **Servo-driven gripper / small arm** — picks up the litter.
-- **Linear actuator** — tilts/dumps the bin at the station.
-**Integration:** The camera and LiDAR feed the SBC (vision + SLAM). The SBC sends a target (x, y) to the Arduino, which runs PID on the wheel motors using encoder feedback and reads ultrasonic/IR for last-metre safety. Encoder + IMU + LiDAR data are **fused** (e.g., Kalman filter) for reliable localization.
- 
-## Q1.2 — Functionality-based workflow (flow diagram)
- 
-The robot loops through: scan → detect → navigate → pick → store → check bin. The decision diamonds branch on "garbage detected?" and "bin full?".
- 
+
+# 🗑️ 1. Garbage Collection Robot
+
+## Purpose
+A **Garbage Collection Robot** automatically detects, picks up, and disposes of waste.
+It works in roads, parks, factories, or indoor spaces — without needing a human to operate it.
+
+## Design Overview
+The robot moves around an area, spots garbage using sensors or a camera,
+grabs it with a robotic arm or gripper, and stores it in a bin.
+When the bin is full, it goes to a dumping station and empties itself.
+
+## Challenges
+- Identifying different types of garbage correctly
+- Limited battery life
+- Moving in crowded places without hitting things
+- Picking up objects of different shapes and sizes
+
+## Applications
+- Smart cities
+- Industrial cleaning
+- Public parks
+- Hospitals & Airports
+
+## Main Components
+
+| Component | What it does |
+|---|---|
+| Microcontroller (Arduino/ESP32) | The brain — controls everything |
+| Ultrasonic Sensor | Detects obstacles nearby |
+| Camera | Identifies and locates garbage |
+| Robotic Arm / Gripper | Picks up the waste |
+| Servo Motor | Moves the arm |
+| DC Motors | Makes the robot move |
+| Battery | Gives power |
+| Waste Storage Bin | Stores the collected garbage |
+
+## Working Principle
+1. Robot starts patrolling the area.
+2. Sensors scan for garbage.
+3. Garbage is detected.
+4. Robotic arm moves toward the object.
+5. Garbage is picked up and placed in the bin.
+6. If the bin is full → go to the dumping station and empty it.
+7. Robot continues searching.
+
+## Workflow Diagram
+
+The robot keeps scanning until it finds garbage. After storing the waste, it checks if the bin is full. If yes, it goes to dump. If no, it continues searching.
+
 ```mermaid
 flowchart TD
-    A([Start]) --> B["Initialize sensors & actuators"]
-    B --> C["Scan environment (camera + LiDAR)"]
-    C --> D{"Garbage detected?"}
-    D -->|No| C
-    D -->|Yes| E["Compute target position (x, y)"]
-    E --> F["Navigate to target (avoid obstacles)"]
-    F --> G["Align gripper & pick up litter"]
-    G --> H["Place item in onboard bin"]
-    H --> I{"Bin full? (load cell)"}
-    I -->|No| C
-    I -->|Yes| J["Navigate to dumping station"]
-    J --> K["Empty bin (linear actuator)"]
+    A([START]) --> B[Initialize System]
+    B --> C[Move Forward & Scan Area]
+    C --> D{Garbage Detected?}
+    D -->|NO| C
+    D -->|YES| E[Move to Garbage]
+    E --> F[Pick Up Waste]
+    F --> G[Store Waste in Bin]
+    G --> H{Bin Full?}
+    H -->|NO| C
+    H -->|YES| I[Go to Dumping Station]
+    I --> J[Empty the Bin]
+    J --> C
+```
+*Figure 1.1: Workflow of the Garbage Collection Robot. The robot loops between scanning and collecting. When the bin is full, it empties itself and resumes.*
+
+## Pseudocode
+
+```
+START
+
+  Initialize Sensors
+  Initialize Motors
+  Initialize Robotic Arm
+
+  WHILE robot is active:
+
+    Scan Environment
+
+    IF garbage detected THEN
+      Move to Garbage
+      Pick Up Garbage
+      Store in Bin
+    END IF
+
+    IF bin is full THEN
+      Move to Disposal Area
+      Empty Bin
+    END IF
+
+  END WHILE
+
+STOP
+```
+
+---
+
+# 🌍 2. Earthquake Monitoring & Evacuation Robot
+
+## Purpose
+This robot detects earthquake hazards, monitors damage to buildings,
+and helps people evacuate safely from dangerous areas.
+
+## Design Overview
+The robot enters areas that are too dangerous for humans.
+It collects real-time data about vibrations, gas leaks, fire risks,
+and trapped victims — and sends this information to emergency teams.
+
+## Challenges
+- Communication can fail after an earthquake
+- Dust and debris can block sensors
+- Ground may be unstable and hard to navigate
+- Limited battery life
+
+## Applications
+- Disaster response & rescue missions
+- Building safety inspection
+- Emergency management
+
+## Main Components
+
+| Component | What it does |
+|---|---|
+| Accelerometer | Detects vibration from shaking |
+| Seismic Sensor | Measures earthquake strength |
+| Gas Sensor | Detects dangerous gas leaks |
+| Temperature Sensor | Detects fire or extreme heat |
+| Camera | Monitors the area live |
+| GPS Module | Tracks robot location |
+| Wireless Module | Sends data to rescue teams |
+| Motors | Makes the robot move |
+
+## Working Principle
+1. Robot continuously monitors the environment.
+2. Detects unusual vibrations or shaking.
+3. Checks for structural damage.
+4. Searches for trapped victims.
+5. Sends emergency alerts to the control center.
+6. Guides people toward safe exit routes.
+
+## Workflow Diagram
+
+The robot keeps monitoring. When it detects an earthquake, it switches into emergency mode — assesses damage, finds victims, sends alerts, and guides evacuation.
+
+```mermaid
+flowchart TD
+    A([START]) --> B[Initialize Sensors]
+    B --> C[Monitor Environment]
+    C --> D{Earthquake Detected?}
+    D -->|NO| C
+    D -->|YES| E[Assess Structural Damage]
+    E --> F[Search for Victims]
+    F --> G[Send Emergency Alerts]
+    G --> H[Guide Evacuation Routes]
+    H --> I{Area Safe?}
+    I -->|NO| F
+    I -->|YES| C
+```
+*Figure 2.1: Workflow of the Earthquake Monitoring & Evacuation Robot. The robot monitors in a loop. On detecting a quake, it enters emergency mode and only returns to monitoring once the area is safe.*
+
+## Pseudocode
+
+```
+START
+
+  Initialize Sensors
+
+  WHILE active:
+
+    Read Seismic Data
+
+    IF earthquake detected THEN
+      Assess Structural Damage
+      Search for Victims
+      Send Alert to Control Center
+      Guide Evacuation
+    END IF
+
+  END WHILE
+
+STOP
+```
+
+---
+
+# 🦾 3. Robotic Arm / Robotic Manipulator
+
+## Purpose
+A robotic arm is used to **grip, move, rotate, and place objects** with high accuracy.
+It replaces human hands in tasks that are repetitive, dangerous, or need precision.
+
+## Design Overview
+It is made of multiple **joints** (like shoulder, elbow, wrist) and **links** (like bones)
+that work together — just like a human arm. The end of the arm has a **gripper** or tool.
+
+## Main Components
+
+| Component | What it does |
+|---|---|
+| Base | Supports the whole arm, stays fixed |
+| Links | Connect the joints (like bones) |
+| Joints | Allow movement at each connection point |
+| Servo Motors | Power each joint |
+| End Effector | The gripper or tool at the tip |
+| Controller | Sends commands to joints |
+| Sensors / Encoders | Feedback — tells controller where each joint is |
+
+## Working Principle
+1. Receive the target object's coordinates `(x, y)`.
+2. Calculate the required **joint angles** using **Inverse Kinematics (IK)**.
+3. Move each joint using servo motors.
+4. Reach the target position.
+5. Pick or place the object.
+6. Return to the home (starting) position.
+
+> 💡 **IK (Inverse Kinematics):** Given *where* you want the arm to go, calculate *which angles* each joint needs to be at. It is the reverse of FK (Forward Kinematics), which asks: given the joint angles, *where* is the tip?
+
+## Workflow Diagram
+
+The arm receives a target, computes IK, moves joints, performs the task, and returns home — ready for the next command.
+
+```mermaid
+flowchart TD
+    A([START]) --> B[Receive Target Position x, y]
+    B --> C[Calculate Joint Angles using IK]
+    C --> D[Move Servo Motors]
+    D --> E{Target Position Reached?}
+    E -->|NO| D
+    E -->|YES| F[Perform Pick or Place Task]
+    F --> G[Return to Home Position]
+    G --> A
+```
+*Figure 3.1: Workflow of the Robotic Arm. After each task, the arm returns to the home position and waits for the next target.*
+
+## Pseudocode
+
+```
+START
+
+  Receive Target Coordinates (x, y)
+  Calculate Joint Angles using Inverse Kinematics
+  Move Servo Motors to Calculated Angles
+
+  IF target reached THEN
+    Perform Pick / Place Task
+  END IF
+
+  Return to Home Position
+
+STOP
+```
+
+---
+
+# 🏥 4. Nursing Assistant Robot
+
+## Purpose
+A **Nursing Assistant Robot** helps hospital staff by delivering medicines,
+monitoring patient health, and transporting supplies automatically.
+
+## Design Overview
+The robot works in hospitals, clinics, and elderly care centers.
+It can move on its own, talk to patients, and help with routine medical tasks —
+so nurses can focus on more important work.
+
+## Challenges
+- Protecting patient privacy and data security
+- Navigating accurately in crowded hospital corridors
+- Reliable communication with hospital systems
+- Handling emergency situations
+- Battery limitations
+
+## Applications
+- Hospitals
+- Elderly care centers
+- Rehabilitation facilities
+- Home healthcare services
+
+## Main Components
+
+| Component | What it does |
+|---|---|
+| Microcontroller / Processor | Controls all robot operations |
+| Camera | Monitors patients and navigation |
+| Temperature Sensor | Measures body temperature |
+| Heart Rate Sensor | Monitors patient pulse |
+| Ultrasonic Sensor | Detects nearby obstacles safely |
+| Touchscreen / Display | Lets patients or nurses interact with it |
+| Speaker & Microphone | Voice communication |
+| DC Motors | Movement |
+| Wi-Fi Module | Communicates with hospital network |
+| Battery | Power supply |
+
+## Working Principle
+1. Robot receives a task from hospital staff (e.g., deliver medicine to Room 5).
+2. Navigates to the patient's room safely.
+3. Monitors patient health (temperature, heart rate).
+4. Delivers medicine or supplies.
+5. Sends health data to the nurse's station.
+6. Returns to the charging station when done or when battery is low.
+
+## Workflow Diagram
+
+The robot receives a task, goes to the patient, checks health, delivers items, reports, and returns. It keeps running in a loop until it needs to charge.
+
+```mermaid
+flowchart TD
+    A([START]) --> B[Initialize System & Sensors]
+    B --> C[Receive Task from Nurse Station]
+    C --> D[Navigate to Patient Location]
+    D --> E{Obstacle in the Way?}
+    E -->|YES| F[Avoid Obstacle & Re-route]
+    F --> D
+    E -->|NO| G[Monitor Patient Health Data]
+    G --> H[Deliver Medicine / Supplies]
+    H --> I[Send Health Data to Nurse]
+    I --> J{Task Completed?}
+    J -->|NO| C
+    J -->|YES| K[Return to Charging Station]
     K --> C
 ```
- 
-*Figure 1.1: Functional workflow of the garbage collection robot. Two decision points control the cycle — detection keeps it scanning, and the bin-full check sends it to dump before resuming.*
- 
-## Q1.3 — Control flow / state transitions
- 
-At a higher level the robot is a finite-state machine. Events (garbage found, bin full, low battery) trigger transitions.
- 
-```mermaid
-stateDiagram-v2
-    [*] --> IDLE
-    IDLE --> SCANNING: power on
-    SCANNING --> NAVIGATING: garbage detected
-    NAVIGATING --> PICKING: target reached
-    PICKING --> SCANNING: item stored, bin not full
-    PICKING --> DUMPING: bin full
-    DUMPING --> SCANNING: bin emptied
-    SCANNING --> CHARGING: battery low
-    NAVIGATING --> CHARGING: battery low
-    CHARGING --> SCANNING: battery OK
+*Figure 4.1: Workflow of the Nursing Assistant Robot. An obstacle check is included during navigation to ensure safe movement around patients and staff.*
+
+## Pseudocode
+
 ```
- 
-*Figure 1.2: State-transition diagram. CHARGING is reachable from working states on a low-battery event and returns control to SCANNING once recharged.*
- 
-## Q1.4 — Pseudocode
- 
-```text
-BEGIN GarbageCollectionRobot
- 
-    INITIALIZE sensors  = {camera, lidar, ultrasonic, IR, gps, imu, encoders, loadCell}
-    INITIALIZE actuators = {driveMotors, gripperServo, dumpActuator}
-    SET state    = IDLE
-    SET binFull  = FALSE
- 
-    FUNCTION scanEnvironment():
-        frame = camera.capture()
-        objects = detectGarbage(frame)      // CNN
-        RETURN objects
- 
-    FUNCTION detectGarbage(frame):
-        RETURN CNN.classify(frame, class = "litter")
- 
-    FUNCTION navigateTo(target):
-        WHILE distanceTo(target) > tolerance:
-            avoidObstacles(ultrasonic, lidar)
-            error   = headingError(target)
-            speed   = PID(error)            // heading control
-            driveMotors.set(speed)
- 
-    FUNCTION pickUp():
-        gripperServo.open()
-        approachItem()
-        gripperServo.close()
- 
-    FUNCTION dumpBin():
-        navigateTo(DUMP_STATION)
-        dumpActuator.extend()
-        dumpActuator.retract()
-        binFull = FALSE
- 
-    // ---------- main loop ----------
-    state = SCANNING
-    WHILE robotIsOn():
-        objects = scanEnvironment()
-        IF objects is not empty THEN
-            target = objects[0].position
-            navigateTo(target)
-            pickUp()
-            IF loadCell.read() >= FULL_THRESHOLD THEN
-                binFull = TRUE
-        IF binFull THEN
-            dumpBin()
-        IF battery.level() < LOW THEN
-            goCharge()
- 
-END
+START
+
+  Initialize Sensors
+  Initialize Communication Module
+
+  WHILE robot is active:
+
+    Receive Task
+    Navigate to Patient
+
+    Monitor Health Status
+    Deliver Medicine
+    Send Data to Nurse
+
+    IF battery low THEN
+      Go to Charging Station
+    END IF
+
+  END WHILE
+
+STOP
 ```
- 
-## Q1.5 — Robotics Math & Mechanics
- 
-This is a **mobile robot**, so its "forward kinematics" is differential-drive odometry, and coordinate geometry handles target-seeking. (FK/IK of a multi-joint arm is covered fully under the Robotic Arm.)
- 
-**Coordinate geometry (target seeking).** Robot at `(xr, yr, θ)`, litter at `(xt, yt)`:
- 
-- Distance to target: `d = √((xt − xr)² + (yt − yr)²)`
-- Desired heading: `θ_target = atan2(yt − yr, xt − xr)`
-- Heading error (drives the PID): `e = θ_target − θ`
-**Differential-drive forward kinematics** (left/right wheel speeds `vL, vR`, wheelbase `L`):
- 
-```
-v = (vR + vL) / 2          (linear speed)
-ω = (vR − vL) / L          (angular speed)
-ẋ = v·cos θ,  ẏ = v·sin θ,  θ̇ = ω
-```
- 
-**Torque (gripper lifting litter).** To hold a litter of mass `m` at the gripper, arm length `Larm` horizontal:
- 
-```
-τ = m · g · Larm
-Example: m = 0.3 kg, Larm = 0.2 m, g = 9.81
-τ = 0.3 × 9.81 × 0.2 = 0.59 N·m
-```
- 
-So the gripper servo must supply ≥ 0.59 N·m (add a safety factor ≈ 1.5× → ~0.9 N·m).
- 
-## Q1.6 — Vision Sensors: challenges & SLAM
- 
-**Common vision challenges:** outdoor lighting changes (sun vs shadow), occlusion (litter half-hidden under leaves), cluttered backgrounds, telling garbage from non-garbage, motion blur while moving, rain/fog.
- 
-**Techniques to improve detection & navigation:**
- 
-- **Object detection CNN (YOLO/SSD)** trained with heavy **data augmentation** (brightness, rotation, blur) for robustness.
-- **Image preprocessing** — histogram equalization / white balancing to fight lighting changes.
-- **SLAM (Simultaneous Localization And Mapping)** — using LiDAR + odometry, the robot **builds a map and locates itself in it at the same time**, so it can navigate to garbage and back to the dump station without GPS indoors.
-- **Sensor fusion** — combine camera (what) with LiDAR (where) for reliable position of detected litter.
-**Problem-solving approach for "robot can't reliably find litter":** collect a labelled dataset of the deployment site → augment → retrain detector → add depth (stereo/LiDAR) to reject false positives at wrong distances → smooth detections over several frames before acting.
- 
-## Q1.7 — Control Systems: feedback & PID
- 
-**Error signal:** heading error `e = θ_target − θ` (and a separate speed loop on encoder velocity).
- 
-**Role of each PID term** (output `u = Kp·e + Ki·∫e dt + Kd·de/dt`):
- 
-- **P** — turns harder the larger the heading error; alone it leaves a small steady offset.
-- **I** — accumulates small persistent errors (e.g., one wheel slightly weaker) and removes the steady-state offset.
-- **D** — reacts to how fast the error is changing; damps overshoot so the robot doesn't zig-zag past the line/target.
-This is exactly your line-follower PID: `error = (left IR − right IR)`, output corrects steering. **Tuning:** raise Kp until it tracks but starts oscillating → add Kd to kill the oscillation → add a little Ki to remove residual drift.
- 
-## Q1.8 — Communication Protocols
- 
-- **Internal:** **I²C** for low-rate sensors (IMU), **SPI** for the high-rate LiDAR, **UART** between Arduino ↔ Raspberry Pi and to the GPS.
-- **External:** **Wi-Fi + MQTT** to publish status ("bin 80% full", location) to a central dashboard; **LoRa** as a low-bandwidth fallback for wide-area campus coverage.
+
 ---
- 
-# 2. Earthquake Monitoring & Evacuation Robot
- 
-**Scenario:** A robot continuously monitors ground vibration and gas levels. When it detects a quake above a threshold, it sounds an alarm, switches to evacuation mode, detects people, guides them to the nearest safe exit, watches for gas leaks/fire, and relays live data to an emergency control centre.
- 
-## Q2.1 — Embedded Systems: sensors, actuators, integration
- 
-**Sensors:**
- 
-- **Accelerometer / MEMS seismic sensor (e.g., ADXL345) or geophone** — detects tremors; magnitude from peak/RMS acceleration.
-- **Gas sensors (MQ-2 combustible, MQ-7 CO)** — post-quake leak detection.
-- **Smoke + temperature sensors** — fire risk.
-- **Thermal/IR camera** — locate survivors by body heat; **microphone** — detect cries for help.
-- **LiDAR + RGB camera** — navigate rubble, find exits.
-- **IMU** — keep the robot stable on shaking/uneven ground.
-- **Ultrasonic** — close-range obstacle avoidance.
-**Actuators:**
- 
-- **Tracked / legged drive motors** — locomotion over debris.
-- **Speaker / siren + LED arrow display** — alarms and directional evacuation guidance.
-- **Servo** — pan the thermal camera to sweep for survivors.
-**Integration:** the seismic sensor is wired to a hardware **interrupt** so a tremor instantly wakes the controller; the controller computes severity, fires the alarm/actuators, and pushes data out over the radio link. Interrupt-driven design = fast reaction without polling.
- 
-## Q2.2 — Functionality-based workflow (flow diagram)
- 
-The robot sits in a monitoring loop; a threshold crossing kicks it into the evacuation/rescue branch.
- 
+
+# 🔥 5. Firefighting Robot
+
+## Purpose
+A **Firefighting Robot** detects fire, moves toward it,
+and puts it out — in places too dangerous for human firefighters.
+
+## Design Overview
+The robot patrols an area. When it detects a flame or smoke,
+it locates the fire source, drives toward it, aims a water nozzle at the fire,
+and sprays water or foam until the fire is out.
+
+## Main Components
+
+| Component | What it does |
+|---|---|
+| Flame Sensor | Detects the presence and direction of fire |
+| Smoke Sensor | Detects smoke (early fire warning) |
+| Temperature Sensor | Measures heat level |
+| Ultrasonic Sensor | Avoids obstacles while moving |
+| Water Pump | Sprays water at the fire |
+| Water Tank | Stores the water or foam agent |
+| Servo Motor | Aims the nozzle toward the fire |
+| DC Motors | Makes the robot move |
+| Microcontroller | Controls all operations |
+| Battery | Power source |
+
+## Working Principle
+1. Robot continuously patrols and monitors the area.
+2. Flame or smoke is detected.
+3. Robot calculates the direction of the fire.
+4. Moves toward the fire while avoiding obstacles.
+5. Activates the water pump and aims the nozzle.
+6. Sprays water until the fire is extinguished.
+7. Confirms fire is out and returns to standby/patrol mode.
+
+## Workflow Diagram
+
+The robot patrols in a loop. On detecting fire, it approaches and sprays until the fire is out, then returns to patrol mode.
+
 ```mermaid
 flowchart TD
-    A([Start]) --> B["Initialize seismic, gas, vision sensors"]
-    B --> C["Monitor ground vibration"]
-    C --> D{"Vibration > threshold?"}
-    D -->|No| C
-    D -->|Yes| E["Trigger alarm & assess severity"]
-    E --> F["Enter EVACUATION mode"]
-    F --> G["Detect people (thermal + camera)"]
-    G --> H["Guide to nearest safe exit"]
-    H --> I{"Gas / fire detected?"}
-    I -->|Yes| J["Re-route around hazard"]
-    I -->|No| K["Relay live data to control centre"]
-    J --> K
-    K --> L{"Area clear?"}
-    L -->|No| G
-    L -->|Yes| C
-```
- 
-*Figure 2.1: Functional workflow. The vibration threshold is the master decision; inside evacuation mode a second hazard check re-routes people away from gas/fire before reporting.*
- 
-## Q2.3 — Control flow / state transitions
- 
-```mermaid
-stateDiagram-v2
-    [*] --> MONITORING
-    MONITORING --> ALERT: vibration > threshold
-    ALERT --> EVACUATION: alarm raised
-    EVACUATION --> RESCUE_ASSIST: trapped person found
-    RESCUE_ASSIST --> EVACUATION: person guided out
-    EVACUATION --> MONITORING: area clear
-    ALERT --> MONITORING: false alarm
-```
- 
-*Figure 2.2: State transitions. A trapped-person event diverts to RESCUE_ASSIST and returns to EVACUATION; a confirmed false alarm returns directly to MONITORING.*
- 
-## Q2.4 — Pseudocode
- 
-```text
-BEGIN EarthquakeRobot
- 
-    INITIALIZE sensors  = {accelerometer, gasSensor, smoke, thermalCam, camera, lidar, mic, imu}
-    INITIALIZE actuators = {trackMotors, siren, ledDisplay, camServo}
-    SET threshold = 0.05g
-    SET state = MONITORING
- 
-    FUNCTION readSeismic():
-        a = accelerometer.readRMS(window = 1s)
-        RETURN a
- 
-    FUNCTION triggerAlarm(severity):
-        siren.on(severity)
-        ledDisplay.show("EVACUATE -> EXIT")
- 
-    FUNCTION detectPeople():
-        RETURN fuse(thermalCam.hotSpots(), camera.persons(), mic.distressSound())
- 
-    FUNCTION guideToExit(person):
-        path = shortestPath(person.position, nearestSafeExit())
-        FOR step IN path:
-            avoidHazards(gasSensor, smoke)
-            ledDisplay.pointTo(step)
-            navigate(step)
- 
-    FUNCTION reportToCentre(data):
-        radio.publish("emergency/feed", data)
- 
-    // ---------- main loop ----------
-    WHILE robotIsOn():
-        a = readSeismic()
-        IF a > threshold THEN
-            severity = estimateSeverity(a)
-            triggerAlarm(severity)
-            state = EVACUATION
-            people = detectPeople()
-            FOR p IN people:
-                guideToExit(p)
-            reportToCentre({severity, gasSensor.read(), smoke.read()})
-        state = MONITORING
- 
-END
-```
- 
-## Q2.5 — Robotics Math & Mechanics
- 
-**Seismic magnitude (thresholding).** Sample acceleration over a window and take RMS:
- 
-```
-a_rms = √( (1/N) · Σ aᵢ² )
-ALERT if a_rms > threshold (e.g., 0.05 g, where g = 9.81 m/s²)
-Severity scales with Peak Ground Acceleration (PGA) = max|aᵢ|
-```
- 
-**Coordinate geometry (shortest path to exit).** With exits at known coordinates, pick the nearest by Euclidean distance and route with **A\***/Dijkstra on the floor graph:
- 
-```
-d_exit = √((x_exit − x_person)² + (y_exit − y_person)²)
-choose exit = argmin(d_exit)
-```
- 
-**Locomotion / torque on a debris slope (incline angle α):** force to climb `F = m·g·sin α`, motor torque `τ = F·r`. (Worked numerically under the Firefighting robot, which uses the same incline model.)
- 
-## Q2.6 — Vision Sensors: challenges & SLAM
- 
-**Challenges:** dust and smoke after a quake blind RGB cameras; lighting may be dark (power out); the building's geometry has **changed** (collapsed walls), so a pre-loaded map is wrong.
- 
-**Techniques:**
- 
-- **Thermal + RGB fusion** — thermal sees body heat through dust/dark to find survivors.
-- **Re-mapping SLAM** — don't trust the old map; run SLAM live to rebuild the changed environment and still localize.
-- **LiDAR** penetrates dust/smoke better than a camera for obstacle geometry.
-**Problem-solving approach for "can't find survivors in smoke":** prioritize thermal camera + microphone (sound) over RGB → fuse hotspots with audio direction → mark candidate locations on the live SLAM map for rescuers.
- 
-## Q2.7 — Control Systems: feedback & PID
- 
-- **Threshold/bang-bang control** for the alarm (on/off at a vibration threshold).
-- **PID for stable locomotion** on shaking, uneven ground: error = tilt angle from IMU; the controller adjusts track speeds to keep the robot upright and on heading. **Tuning** favours a higher Kd (strong damping) because the ground itself is vibrating — too little damping makes the robot oscillate with the tremor.
-## Q2.8 — Communication Protocols
- 
-Infrastructure may be **damaged**, so reliability and range dominate:
- 
-- **LoRa / 4G-LTE** — long-range alerts to the emergency centre when Wi-Fi is down.
-- **MQTT** over whatever link survives — lightweight publish of sensor feeds.
-- **Zigbee / mesh** — robot-to-robot in a swarm so messages hop around dead zones.
-- Use **redundant links** (try cellular, fall back to LoRa).
----
- 
-# 3. Robotic Arm / Manipulator
- 
-**Scenario:** A multi-DOF industrial arm performs pick-and-place: a camera finds a part's pose, the controller computes joint angles (IK), each joint moves under PID control to grasp the part, the arm moves it to a target location, releases, and returns home. **This is the robot for FK, IK, and torque.**
- 
-## Q3.1 — Embedded Systems: sensors, actuators, integration
- 
-**Sensors:**
- 
-- **Joint encoders** — measure each joint angle (the core position feedback).
-- **Force/torque sensor at the wrist** — detect contact and control grip force.
-- **Motor current sensors** — estimate joint torque/load.
-- **Camera (eye-in-hand or fixed)** — locate the object's pose (visual servoing).
-- **Limit switches** — define home/zero and protect joint limits.
-- **Tactile/proximity sensor in gripper** — confirm a part is held.
-**Actuators:**
- 
-- **Servo / stepper / BLDC motor at each joint**, usually through a **gearbox / harmonic drive** for torque.
-- **Gripper actuator** (servo or pneumatic).
-**Integration:** encoders → controller computes the current end-effector pose via **FK**; given a target pose, the controller solves **IK** for joint angles; a **per-joint PID** drives each motor to its target angle; the force sensor closes a grip-force loop. Closed-loop on every joint = accuracy.
- 
-## Q3.2 — Functionality-based workflow (flow diagram)
- 
-```mermaid
-flowchart TD
-    A([Start]) --> B["Initialize joints, home position"]
-    B --> C["Receive target object pose"]
-    C --> D["Compute IK -> joint angles"]
-    D --> E{"Angles within joint limits?"}
-    E -->|No| F["Report unreachable / re-plan"]
-    F --> C
-    E -->|Yes| G["Move joints (PID per joint)"]
-    G --> H["Close gripper"]
-    H --> I{"Grip confirmed? (force sensor)"}
-    I -->|No| G
-    I -->|Yes| J["Move to place location (IK)"]
-    J --> K["Open gripper / release"]
-    K --> L["Return to home"]
+    A([START]) --> B[Initialize Flame, Smoke & Temperature Sensors]
+    B --> C[Patrol Area]
+    C --> D{Fire or Smoke Detected?}
+    D -->|NO| C
+    D -->|YES| E[Locate Fire Source]
+    E --> F[Move Toward Fire]
+    F --> G{Safe Distance Reached?}
+    G -->|NO| F
+    G -->|YES| H[Aim Nozzle at Fire]
+    H --> I[Activate Water Pump]
+    I --> J{Fire Extinguished?}
+    J -->|NO| H
+    J -->|YES| K[Turn Off Pump]
+    K --> L[Return to Standby / Patrol]
     L --> C
 ```
- 
-*Figure 3.1: Functional workflow. IK feasibility is checked against joint limits before motion, and a force-sensor check confirms the grasp before the arm transports the part.*
- 
-## Q3.3 — Control flow / state transitions
- 
-```mermaid
-stateDiagram-v2
-    [*] --> HOME
-    HOME --> MOVING_TO_PICK: target received
-    MOVING_TO_PICK --> GRASPING: pick pose reached
-    GRASPING --> MOVING_TO_PLACE: grip confirmed
-    MOVING_TO_PLACE --> RELEASING: place pose reached
-    RELEASING --> HOME: part released
-    MOVING_TO_PICK --> ERROR: joint fault / unreachable
-    GRASPING --> ERROR: grip failed
-    ERROR --> HOME: reset
+*Figure 5.1: Workflow of the Firefighting Robot. After reaching a safe distance, the robot aims and sprays in a loop until the fire is confirmed out. It then returns to patrol mode.*
+
+## Pseudocode
+
 ```
- 
-*Figure 3.2: State transitions including an ERROR state entered on a joint fault or failed grip, recoverable by resetting to HOME.*
- 
-## Q3.4 — Pseudocode
- 
-```text
-BEGIN RoboticArm
- 
-    INITIALIZE joints   = {J1, J2, ... Jn}   with encoders
-    INITIALIZE gripper, forceSensor, camera
-    SET L1, L2 = link lengths
-    moveAllJointsTo(HOME)
-    SET state = HOME
- 
-    FUNCTION forwardKinematics(theta1, theta2):
-        x = L1*cos(theta1) + L2*cos(theta1 + theta2)
-        y = L1*sin(theta1) + L2*sin(theta1 + theta2)
-        RETURN (x, y)
- 
-    FUNCTION inverseKinematics(x, y):
-        c2 = (x*x + y*y - L1*L1 - L2*L2) / (2*L1*L2)
-        theta2 = atan2( sqrt(1 - c2*c2), c2 )           // elbow-up
-        theta1 = atan2(y, x) - atan2(L2*sin(theta2), L1 + L2*cos(theta2))
-        RETURN (theta1, theta2)
- 
-    FUNCTION moveJointTo(joint, targetAngle):
-        WHILE abs(joint.angle() - targetAngle) > tol:
-            error = targetAngle - joint.angle()
-            u     = PID(error)                           // position control
-            joint.drive(u)
- 
-    FUNCTION grasp():
-        gripper.close()
-        WAIT until forceSensor.read() >= GRIP_FORCE
- 
-    // ---------- main loop ----------
-    WHILE robotIsOn():
-        target = camera.getObjectPose()
-        (t1, t2) = inverseKinematics(target.x, target.y)
-        IF withinLimits(t1, t2) THEN
-            moveJointTo(J1, t1); moveJointTo(J2, t2)
-            grasp()
-            (p1, p2) = inverseKinematics(PLACE.x, PLACE.y)
-            moveJointTo(J1, p1); moveJointTo(J2, p2)
-            gripper.open()
-            moveAllJointsTo(HOME)
-        ELSE
-            report("unreachable")
- 
-END
+START
+
+  Initialize Flame Sensor
+  Initialize Smoke Sensor
+  Initialize Motors
+  Initialize Water Pump
+
+  WHILE robot is active:
+
+    Detect Fire
+
+    IF fire detected THEN
+      Locate Fire Position
+      Move Toward Fire
+      Aim Nozzle at Fire
+      Activate Pump
+
+      WHILE fire exists:
+        Continue Spraying
+      END WHILE
+
+      Turn Off Pump
+      Return to Standby
+    END IF
+
+  END WHILE
+
+STOP
 ```
- 
-## Q3.5 — Robotics Math & Mechanics (FK, IK, Torque) — full worked answers
- 
-### Coordinate frames
-The **base frame** is fixed. Each joint has its own frame; link 1 (length `L1`) makes angle `θ1` with the X-axis, link 2 (length `L2`) makes angle `θ2` **relative to link 1**. The end-effector sits at `(x, y)`.
- 
-```
-                       • (x, y)  end-effector
-                      /
-                  L2 /
-                    /  θ2  (relative angle at the elbow)
-            elbow  •─────────
-                  /
-              L1 /
-                / θ1  (measured from +X axis)
-        base   •────────────────────────► X
-```
- 
-### Forward Kinematics (2-DOF planar arm)
-Given joint angles, find the end-effector position:
- 
-```
-x = L1·cos(θ1) + L2·cos(θ1 + θ2)
-y = L1·sin(θ1) + L2·sin(θ1 + θ2)
-```
- 
-### Inverse Kinematics (2-DOF planar arm)
-Given a target `(x, y)`, find the joint angles:
- 
-```
-cos θ2 = (x² + y² − L1² − L2²) / (2·L1·L2)
-θ2     = ± acos(...)            // + = elbow-down, − = elbow-up (two solutions)
-θ1     = atan2(y, x) − atan2(L2·sin θ2, L1 + L2·cos θ2)
-```
- 
-### Worked numerical example (FK ↔ IK check)
-Let `L1 = L2 = 1 m`, target `(x, y) = (1, 1)`.
- 
-**IK:**
-```
-cos θ2 = (1² + 1² − 1² − 1²) / (2·1·1) = 0 / 2 = 0   →  θ2 = 90°
-θ1 = atan2(1, 1) − atan2(1·sin90°, 1 + 1·cos90°)
-   = 45° − atan2(1, 1) = 45° − 45° = 0°
-```
-**FK check (plug θ1 = 0°, θ2 = 90° back in):**
-```
-x = 1·cos0° + 1·cos(0°+90°) = 1 + 0 = 1 ✓
-y = 1·sin0° + 1·sin(0°+90°) = 0 + 1 = 1 ✓
-```
-The solution is consistent — this is the standard way to verify IK in an exam.
- 
-### Torque calculation (holding a load)
-Static torque a joint must supply to hold mass `m` at horizontal reach `r`:
- 
-```
-τ = m · g · r
-```
-For a 2-link arm the shoulder reach is `r = L1·cos θ1 + L2·cos(θ1+θ2)` (plus link self-weight at their centres of mass for a fuller answer).
- 
-**Worked example:** payload `m = 2 kg` at reach `r = 0.5 m`, `g = 9.81`:
-```
-τ = 2 × 9.81 × 0.5 = 9.81 N·m
-```
-Add a link of mass `mL = 1 kg` whose centre is at `0.25 m`:
-```
-τ_total = 9.81 + (1 × 9.81 × 0.25) = 9.81 + 2.45 = 12.26 N·m
-```
-The shoulder motor + gearbox must deliver ≥ 12.26 N·m (apply a safety factor).
- 
-## Q3.6 — Vision Sensors: challenges & techniques
- 
-**Challenges:** specular reflections/glare off shiny metal parts, precise **6-DOF pose** estimation, camera-to-arm **calibration** (hand–eye), depth ambiguity from a single camera, partial occlusion in a bin.
- 
-**Techniques:**
- 
-- **Hand–eye (extrinsic) calibration** so pixel coordinates map correctly to the arm's base frame.
-- **Stereo / depth camera** for reliable 3D pose; **fiducial markers (ArUco)** for high-accuracy pose when allowed.
-- **Visual servoing** — close a control loop directly on the image error (move so the part centres in view).
-- Controlled/diffuse lighting and polarizers to kill glare.
-## Q3.7 — Control Systems: PID, tuning, performance
- 
-**Per-joint position PID:** error = (target angle − measured angle), output = motor command. `u = Kp·e + Ki·∫e dt + Kd·de/dt`.
- 
-- **Kp (stiffness):** larger → faster move, but too large → overshoot/oscillation.
-- **Ki:** removes steady-state error — e.g., gravity making the arm **droop** below the target; the integral term builds up and holds it exactly.
-- **Kd (damping):** suppresses overshoot and oscillation near the target.
-**Performance metrics** (judge the step response): **rise time** (how fast it reaches the target), **overshoot** (how far it passes it), **settling time** (time to stay within a band), **steady-state error** (final offset).
- 
-**Tuning — Ziegler–Nichols:** set Ki = Kd = 0, raise Kp until the output **oscillates steadily** at gain `Ku` with period `Tu`, then set `Kp = 0.6·Ku`, `Ki = 1.2·Ku/Tu`, `Kd = 0.075·Ku·Tu`. Practical rule: Kp for speed → Kd to remove overshoot → Ki to remove residual error.
- 
-## Q3.8 — Communication Protocols
- 
-Joint control must be **deterministic and low-latency**:
- 
-- **CAN bus** — robust multi-drop bus to all joint drivers (industry standard).
-- **EtherCAT** — hard real-time Ethernet for high-performance synchronized joints.
-- **Modbus / RS-485** — integration with PLCs and simpler drives.
+
 ---
- 
-# 4. Nursing Assistant Robot
- 
-**Scenario:** A hospital robot delivers medication/supplies to patients. It navigates corridors crowded with moving people, verifies the patient's identity before dispensing, checks basic vitals, responds to voice calls, and returns to base — all while guaranteeing safety around humans.
- 
-## Q4.1 — Embedded Systems: sensors, actuators, integration
- 
-**Sensors:**
- 
-- **LiDAR + RGB-D camera** — navigation, people detection, SLAM in the ward.
-- **Ultrasonic / IR proximity** — safety bubble: stop if a person is too close.
-- **RFID/NFC reader** — verify patient ID and match it to the correct medication.
-- **IR thermometer / SpO₂ / BP module** — basic vitals.
-- **Microphone + touchscreen** — voice/UI interaction and patient calls.
-- **Load cell** — confirm the correct tray payload.
-**Actuators:**
- 
-- **Differential-drive motors** — smooth mobility.
-- **Optional small arm/gripper** — hands items to the patient.
-- **Speaker + display** — communication.
-- **Linear actuator** — adjustable tray height.
-**Integration:** the navigation stack fuses **LiDAR + IMU + encoders**; a **safety layer** lets proximity sensors override motion (emergency stop) regardless of what the planner wants; RFID ties identity verification to the dispensing actuator so meds can't be released to the wrong patient.
- 
-## Q4.2 — Functionality-based workflow (flow diagram)
- 
-```mermaid
-flowchart TD
-    A([Start]) --> B["Initialize navigation, RFID, vitals sensors"]
-    B --> C["Receive task: deliver med to Patient X"]
-    C --> D["Plan path on ward SLAM map"]
-    D --> E["Navigate (avoid moving people)"]
-    E --> F{"Person too close?"}
-    F -->|Yes| G["Slow / stop, wait"]
-    G --> E
-    F -->|No| H{"Reached patient?"}
-    H -->|No| E
-    H -->|Yes| I["Verify identity (RFID / face)"]
-    I --> J{"Identity match?"}
-    J -->|No| K["Abort & alert nurse"]
-    J -->|Yes| L["Dispense medication, log it"]
-    L --> M["Return to base"]
-    M --> C
-```
- 
-*Figure 4.1: Functional workflow. A proximity check runs continuously during navigation (safety first), and dispensing only happens after a successful identity match — otherwise it aborts and alerts staff.*
- 
-## Q4.3 — Control flow / state transitions
- 
-```mermaid
-stateDiagram-v2
-    [*] --> IDLE
-    IDLE --> NAVIGATING: task assigned
-    NAVIGATING --> INTERACTING: patient reached
-    INTERACTING --> DELIVERING: identity verified
-    INTERACTING --> IDLE: verification failed (alert nurse)
-    DELIVERING --> RETURNING: medication logged
-    RETURNING --> IDLE: docked
-    NAVIGATING --> CHARGING: battery low
-    CHARGING --> IDLE: charged
-```
- 
-*Figure 4.2: State transitions. Failed verification returns the robot to IDLE after alerting a nurse; low battery diverts to CHARGING.*
- 
-## Q4.4 — Pseudocode
- 
-```text
-BEGIN NursingAssistantRobot
- 
-    INITIALIZE sensors  = {lidar, rgbdCamera, ultrasonic, rfid, thermometer, mic, loadCell}
-    INITIALIZE actuators = {driveMotors, gripper, speaker, display, trayActuator}
-    SET safeDistance = 1.0    // metres
-    SET state = IDLE
- 
-    FUNCTION planPath(goal):
-        RETURN aStar(slamMap, currentPose, goal)
- 
-    FUNCTION navigate(path):
-        FOR waypoint IN path:
-            WHILE distanceTo(waypoint) > tol:
-                IF nearestPerson() < safeDistance THEN
-                    driveMotors.stop()          // safety override
-                ELSE
-                    error = headingError(waypoint)
-                    speed = PID(error)
-                    driveMotors.set(limit(speed, SMOOTH_MAX))
- 
-    FUNCTION verifyPatient(expectedID):
-        RETURN rfid.read() == expectedID
- 
-    FUNCTION dispense(med):
-        trayActuator.present(med)
-        log(patient, med, timestamp)
- 
-    // ---------- main loop ----------
-    WHILE robotIsOn():
-        task = getTaskFromNurseStation()        // via MQTT
-        path = planPath(task.patientLocation)
-        navigate(path)
-        IF verifyPatient(task.patientID) THEN
-            dispense(task.medication)
-        ELSE
-            alertNurse("ID mismatch")
-        navigate( planPath(BASE) )
- 
-END
-```
- 
-## Q4.5 — Robotics Math & Mechanics
- 
-**Mobile-robot kinematics** (same differential-drive equations as the garbage robot): `v=(vR+vL)/2`, `ω=(vR−vL)/L`, `ẋ=v cosθ`, `ẏ=v sinθ`.
- 
-**Safe stopping distance (a safety calculation examiners love).** To stop before hitting a person, given speed `v` and braking deceleration `a`:
- 
-```
-d_stop = v² / (2·a)
-Example: v = 1 m/s, a = 0.5 m/s²
-d_stop = 1² / (2 × 0.5) = 1 m
-```
-So the proximity "safe bubble" must be at least 1 m at 1 m/s. Slower speed near patients → smaller bubble needed.
- 
-**Coordinate geometry / path length** between waypoints: `d = √(Δx² + Δy²)`; total route = Σ segment lengths (used to pick the shortest plan from A\*).
- 
-If the robot hands an item with a 2-link arm, reuse the **FK/IK** equations from the Robotic Arm section.
- 
-## Q4.6 — Vision Sensors: challenges & SLAM
- 
-**Challenges:** the environment is **dynamic** — people constantly move (the hardest case for a static map); glossy/reflective hospital floors confuse LiDAR; **glass doors** are invisible to LiDAR; low-light corridors at night; **privacy** concerns with face recognition.
- 
-**Techniques:**
- 
-- **Dynamic SLAM** — separate moving people from the static map so the map stays clean.
-- **Pedestrian detection + tracking** with motion prediction → **social navigation** (predict where people will walk and go around politely).
-- **Multi-sensor fusion** (LiDAR + depth camera + ultrasonic) to catch glass/reflective surfaces.
-- Privacy-preserving ID (RFID wristband instead of face) where possible.
-**Problem-solving approach for "robot freezes in a crowd":** predict pedestrian trajectories, plan a path through gaps, reduce speed instead of full-stopping, and allow gentle re-planning so it keeps making progress safely.
- 
-## Q4.7 — Control Systems: feedback & PID
- 
-- **Heading + velocity PID**, but tuned for **comfort and safety**: limit acceleration (smooth profiles, no jerky motion near patients), modest Kp so motion is gentle, Kd to avoid oscillation.
-- A **hard safety layer** above PID: proximity sensor → emergency stop, overriding the controller. This is *safety-critical* control — the stop is not negotiable.
-## Q4.8 — Communication Protocols
- 
-- **Wi-Fi** to the hospital network and the electronic health record (EHR) system.
-- **MQTT** to receive tasks from the nurse station and report completion.
-- **Bluetooth/BLE** to patient wearables for vitals.
-- **Security:** patient data must be **encrypted** (TLS) and access-controlled — health data is sensitive.
----
- 
-# 5. Firefighting Robot
- 
-**Scenario:** A tracked robot patrols a facility, detects fire via flame and thermal sensors, navigates toward the source through smoke while avoiding obstacles, stops at a safe distance, aims a nozzle at the fire, and sprays water/foam until the fire is out — reporting to firefighters throughout.
- 
-## Q5.1 — Embedded Systems: sensors, actuators, integration
- 
-**Sensors:**
- 
-- **IR flame sensors (several, angled)** — detect fire direction.
-- **Thermal/IR camera** — "see" the fire and victims through smoke; locate the hottest region.
-- **Temperature sensor (thermopile/thermocouple)** — heat level / safe-distance check.
-- **Smoke + combustible-gas sensor (MQ-2)** — confirm fire, detect explosion risk.
-- **LiDAR / ultrasonic** — navigation in low visibility.
-- **IMU** — orientation on stairs/debris.
-**Actuators:**
- 
-- **Tracked drive motors** (heat/debris resistant) — locomotion.
-- **Water pump + solenoid valve** — control water/foam flow.
-- **Pan/tilt nozzle servos** — aim the jet at the fire.
-**Integration:** flame sensors give a coarse direction → the robot drives toward it → the **thermal camera** confirms and gives the fire's centroid → **pan/tilt servos** aim the nozzle at that centroid (a closed loop on the thermal image) → the **temperature sensor** enforces a minimum safe standoff distance. Sensor fusion (flame + thermal + temperature) makes targeting robust in smoke.
- 
-## Q5.2 — Functionality-based workflow (flow diagram)
- 
-```mermaid
-flowchart TD
-    A([Start]) --> B["Initialize flame, thermal, smoke, nav sensors"]
-    B --> C["Patrol / monitor area"]
-    C --> D{"Flame or smoke detected?"}
-    D -->|No| C
-    D -->|Yes| E["Locate fire source (sensor fusion)"]
-    E --> F["Navigate toward fire (avoid obstacles)"]
-    F --> G{"At safe distance?"}
-    G -->|No| F
-    G -->|Yes| H["Aim nozzle at fire (pan/tilt)"]
-    H --> I["Activate pump, spray water/foam"]
-    I --> J{"Temperature dropping / fire out?"}
-    J -->|No| H
-    J -->|Yes| K["Stop pump, report extinguished"]
-    K --> C
-```
- 
-*Figure 5.1: Functional workflow. A safe-distance check gates spraying, and the fire-out check (temperature dropping) loops back to re-aim and keep spraying until the fire is confirmed out.*
- 
-## Q5.3 — Control flow / state transitions
- 
-```mermaid
-stateDiagram-v2
-    [*] --> PATROL
-    PATROL --> FIRE_DETECTED: flame / smoke sensed
-    FIRE_DETECTED --> APPROACHING: source located
-    APPROACHING --> EXTINGUISHING: safe distance reached
-    EXTINGUISHING --> VERIFYING: temperature dropping
-    VERIFYING --> EXTINGUISHING: fire still active
-    VERIFYING --> PATROL: fire out, reported
-    APPROACHING --> RETREAT: temperature too high
-    RETREAT --> APPROACHING: cooled / re-approach
-```
- 
-*Figure 5.2: State transitions. A RETREAT state protects the robot when heat is excessive, and VERIFYING loops back to EXTINGUISHING until the fire is confirmed out.*
- 
-## Q5.4 — Pseudocode
- 
-```text
-BEGIN FirefightingRobot
- 
-    INITIALIZE sensors  = {flameSensorL, flameSensorR, thermalCam, tempSensor, smoke, lidar, imu}
-    INITIALIZE actuators = {trackMotors, pump, valve, panServo, tiltServo}
-    SET safeTemp = 60      // deg C standoff limit
-    SET state = PATROL
- 
-    FUNCTION fireDetected():
-        RETURN flameSensorL.read() OR flameSensorR.read() OR smoke.read() > limit
- 
-    FUNCTION fireDirection():
-        // like line-following: steer toward the stronger flame reading
-        RETURN flameSensorR.read() - flameSensorL.read()
- 
-    FUNCTION approachFire():
-        WHILE not atSafeDistance():
-            avoidObstacles(lidar)
-            error = fireDirection()
-            trackMotors.steer( PID(error) )
-            IF tempSensor.read() > safeTemp THEN RETREAT()
- 
-    FUNCTION aimNozzle():
-        centroid = thermalCam.hottestRegion()
-        panServo.move(  PID(centroid.x - frameCenter.x) )
-        tiltServo.move( PID(centroid.y - frameCenter.y) )
- 
-    FUNCTION spray():
-        valve.open(); pump.on()
- 
-    // ---------- main loop ----------
-    WHILE robotIsOn():
-        IF fireDetected() THEN
-            approachFire()
-            WHILE not fireIsOut():
-                aimNozzle()
-                spray()
-            pump.off(); valve.close()
-            report("fire extinguished")
- 
-END
-```
- 
-## Q5.5 — Robotics Math & Mechanics
- 
-**Flame direction (triangulation, line-follower style).** Two flame sensors, readings `sL, sR` (higher = closer/stronger):
- 
-```
-error = sR − sL
-error > 0  →  fire is to the right → steer right
-error < 0  →  fire is to the left  → steer left
-error ≈ 0  →  fire is straight ahead
-```
-This error feeds the steering PID (exactly your line-follower logic).
- 
-**Nozzle aiming (projectile range).** To land water at horizontal distance `R` (level target), at jet speed `v`:
- 
-```
-R = v² · sin(2θ) / g     →     θ = ½ · arcsin( R·g / v² )
-Example: R = 4 m, v = 8 m/s, g = 9.81
-sin(2θ) = (4 × 9.81) / 8² = 39.24 / 64 = 0.613
-2θ = 37.8°  →  θ ≈ 18.9°
-```
-(If the fire is at height `h`, add a height-correction term to the projectile equation.)
- 
-**Torque to climb a slope/stairs (tracked drive, incline α).**
- 
-```
-Tractive force:  F = m·g·sin α + μ·m·g·cos α     (μ = rolling resistance)
-Motor torque:    τ = F · r                        (r = sprocket radius)
-Example (ignore μ): m = 20 kg, α = 20°, r = 0.1 m, g = 9.81
-F = 20 × 9.81 × sin20° = 20 × 9.81 × 0.342 = 67.1 N
-τ = 67.1 × 0.1 = 6.71 N·m  per drive
-```
- 
-## Q5.6 — Vision Sensors: challenges & techniques
- 
-**Challenges:** **smoke blinds ordinary cameras**; flame glare saturates the RGB image; heat-haze distorts the picture; the robot must tell **fire** apart from a **victim** to know where to spray vs whom to rescue; the environment changes as things burn/collapse (map drifts).
- 
-**Techniques:**
- 
-- **Thermal/IR imaging** is the primary sensor — it sees heat through smoke and gives the fire's location directly.
-- **LiDAR** for navigation geometry (penetrates smoke far better than a camera).
-- **Thermal + LiDAR fusion** for "where is the fire, and what's in the way".
-- **SLAM** re-run live because the burning environment is changing.
-**Problem-solving approach for "camera sees only smoke":** drop the RGB camera for targeting, rely on thermal centroid for aiming and LiDAR for obstacle avoidance; sanity-check the thermal hotspot against the flame sensors before spraying.
- 
-## Q5.7 — Control Systems: feedback & PID
- 
-Three feedback loops:
- 
-1. **Heading PID** — drives toward the fire; error = flame-sensor difference (`sR − sL`).
-2. **Nozzle-aim PID** — keeps the nozzle locked on the fire centroid; error = (hotspot pixel − image centre). Pan and tilt each get a PID.
-3. **Safe-distance / temperature loop** — if `temp > safeTemp`, back off (RETREAT).
-**Tuning:** fire is urgent, so the heading loop wants a **fast response** (higher Kp), but the nozzle-aim loop needs **stability** (more Kd) so the jet doesn't jitter off-target. This is the classic speed-vs-stability trade-off.
- 
-## Q5.8 — Communication Protocols
- 
-- **RF / Wi-Fi** — teleoperation by firefighters with a **live video feed** (low latency for control).
-- **LoRa** — long-range link inside large buildings where Wi-Fi can't reach.
-- **Mesh (Zigbee)** — multi-robot coordination so units relay through each other.
-- Reliability and low latency dominate — a dropped command in a fire is dangerous.
----
- 
-# Quick-Revision Cheat Sheet
- 
-## Key formulas
- 
-**Mobile robot (differential drive)**
-```
-v = (vR + vL)/2 ,  ω = (vR − vL)/L
-ẋ = v·cosθ ,  ẏ = v·sinθ ,  θ̇ = ω
-heading to target:  θ_t = atan2(yt−yr, xt−xr)
-distance:           d   = √((xt−xr)² + (yt−yr)²)
-```
- 
-**2-DOF arm — Forward Kinematics**
-```
-x = L1·cosθ1 + L2·cos(θ1+θ2)
-y = L1·sinθ1 + L2·sin(θ1+θ2)
-```
- 
-**2-DOF arm — Inverse Kinematics**
-```
-cosθ2 = (x² + y² − L1² − L2²)/(2·L1·L2)
-θ2 = ±acos(cosθ2)          (± = elbow up/down, 2 solutions)
-θ1 = atan2(y,x) − atan2(L2·sinθ2, L1 + L2·cosθ2)
-```
- 
-**Torque (static, hold load)**
-```
-τ = m·g·r           (r = horizontal reach)   [add link self-weight at L/2 for full marks]
-```
- 
-**PID**
-```
-u(t) = Kp·e + Ki·∫e dt + Kd·de/dt
-P → speed/strength   I → kill steady-state error   D → damp overshoot
-```
- 
-**Safety / projectile / incline**
-```
-stopping distance: d = v²/(2a)
-projectile range:  R = v²·sin(2θ)/g
-incline force:     F = m·g·sinα (+ μ·m·g·cosα)  ;  τ = F·r
-seismic alert:     a_rms = √((1/N)Σaᵢ²) > threshold (e.g. 0.05g)
-```
- 
-## Sensor summary
- 
-| Sensor | Measures | Typical robot use |
-|---|---|---|
-| Ultrasonic (HC-SR04) | Distance (short) | Obstacle avoidance |
-| LiDAR | 2D/3D range map | SLAM, navigation |
-| RGB / RGB-D camera | Image / depth | Detection, pose, vision |
-| Thermal / IR camera | Heat | Fire & survivor detection in smoke |
-| IR flame sensor | Flame presence/direction | Firefighting targeting |
-| IMU (accel + gyro) | Orientation, motion | Stability, odometry |
-| Encoder | Wheel/joint rotation | Speed & position feedback |
-| Force/torque sensor | Contact force | Grip control (arm) |
-| Gas sensor (MQ-2/MQ-7) | Combustible gas / CO | Earthquake, firefighting |
-| Accelerometer/geophone | Vibration | Seismic detection |
-| RFID/NFC | Identity tag | Patient/medication ID |
-| Load cell | Weight | Bin-full / payload check |
- 
-## Communication protocol summary
- 
-| Protocol | Type | Speed/range | Best for |
+
+## 📝 Quick Summary Table
+
+| Robot | Main Sensors | Main Actuators | Key Feature |
 |---|---|---|---|
-| I²C | Wired, 2-wire bus | Low, on-board | Low-rate sensors (IMU) |
-| SPI | Wired, fast | High, on-board | High-rate sensors (LiDAR) |
-| UART | Wired, point-to-point | Medium | MCU↔SBC, GPS |
-| CAN bus | Wired, multi-drop | Robust, real-time | Joint/motor control |
-| EtherCAT | Wired Ethernet | Hard real-time | Synchronized arm joints |
-| Modbus/RS-485 | Wired, multi-drop | Medium | PLC / industrial |
-| Wi-Fi | Wireless | High, ~tens of m | Dashboards, video, EHR |
-| Bluetooth/BLE | Wireless | Low, short | Wearables, vitals |
-| Zigbee | Wireless mesh | Low, mesh | Robot swarm relay |
-| LoRa | Wireless | Very low rate, km range | Disaster / long-range alerts |
-| MQTT | App-layer (over Wi-Fi/cellular) | Lightweight pub/sub | Telemetry, task assignment |
- 
-## PID tuning (Ziegler–Nichols, quick)
-1. Ki = Kd = 0; raise Kp until steady oscillation at gain `Ku`, period `Tu`.
-2. `Kp = 0.6·Ku`, `Ki = 1.2·Ku/Tu`, `Kd = 0.075·Ku·Tu`.
-3. Judge with: **rise time, overshoot, settling time, steady-state error.**
+| 🗑️ Garbage | Camera, Ultrasonic | Motors, Gripper, Arm | Detects & picks litter |
+| 🌍 Earthquake | Accelerometer, Gas, Camera | Motors, Speaker, Siren | Detects tremors, guides escape |
+| 🦾 Robotic Arm | Encoders, Camera | Servo Motors, Gripper | FK / IK joint control |
+| 🏥 Nursing | Camera, Heart Rate, Temp | Motors, Speaker, Screen | Delivers meds, monitors vitals |
+| 🔥 Firefighting | Flame, Smoke, Temp | Motors, Pump, Nozzle Servo | Detects & extinguishes fire |
+
 ---
- 
-### One-line memory hooks
-- **Garbage** → vision + SLAM + gripper torque.
-- **Earthquake** → accelerometer threshold + LoRa + re-mapping SLAM.
-- **Arm** → FK/IK/torque + CAN/EtherCAT + per-joint PID.
-- **Nursing** → dynamic SLAM + stopping distance + safety override + encryption.
-- **Firefighting** → thermal camera + flame triangulation + nozzle-aim PID + RETREAT on heat.
- 
+
+> **Exam tip:** For every robot, the examiner usually asks:
+> 1. What sensors does it use and *why* that sensor?
+> 2. Draw the workflow (use proper YES/NO labels on arrows).
+> 3. Write pseudocode with START → INITIALIZE → functions → WHILE loop → STOP.
